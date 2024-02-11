@@ -38,7 +38,7 @@ static AVDictionary *out_opts = NULL;
 static inline const AVOutputFormat *find_output_format(const AVInputFormat *infmt)
 {
     // TODO *_pipe `AVInputFormat`s need handling
-    // for now, just fallback to mjpeg since this
+    // for now, just default to mjpeg since this
     // program is only used for kokanyctl anyway
     if(!infmt) return NULL;
     const AVOutputFormat *outfmt = av_guess_format("mjpeg",
@@ -155,8 +155,10 @@ int main(int argc, char **argv)
                 }
                 break;
             case '?':
+                return 1;
                 break;
             case ':':
+                return 1;
                 break;
         }
     }
