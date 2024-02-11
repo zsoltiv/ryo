@@ -26,12 +26,14 @@
 struct output {
     AVFormatContext *avctx;
     struct output *next;
+    bool initialized;
 };
 
 static bool input_present = false;
 static AVFormatContext *inctx = NULL;
 static AVInputFormat *infmt = NULL;
 static AVPacket *pkt;
+static AVDictionary *out_opts = NULL;
 
 static inline const AVOutputFormat *find_output_format(const AVInputFormat *infmt)
 {
@@ -66,12 +68,41 @@ static struct output *output_new(struct output *prev, const char *ffout)
         prev->next = out;
     out->next = NULL;
     out->avctx = open_outctx(ffout);
+    out->initialized = false;
     return out;
 }
 
-static void input_init(const char *ffinput)
+static int output_copy_streams(struct output *out)
 {
-    inctx = avformat_alloc_context();
+    int ret;
+    for(int i = 0; i < inctx->nb_streams; i++) {
+        AVStream *instream = inctx->streams[i];
+        AVStream *outstream = avformat_new_stream(out->avctx, NULL);
+        if((ret = avcodec_parameters_copy(outstream->codecpar, instream->codecpar)) < 0) {
+            fprintf(stderr, "avcodec_parameters_copy(): %s\n", av_err2str(ret));
+            return ret;
+        }
+        outstream->codecpar->codec_tag = 0;
+    }
+    return 0;
+}
+
+static int output_init_ctx(struct output *out)
+{
+    int ret;
+    if((ret = output_copy_streams(out)) < 0)
+        return ret;
+    if((ret = av_dict_set(&out_opts, "listen", "1", 0)) < 0) {
+        fprintf(stderr, "av_dict_set(): %s\n", av_err2str(ret));
+        return ret;
+    }
+    if((ret = avformat_write_header(out->avctx, &out_opts)) < 0) {
+        fprintf(stderr, "avformat_write_header(): %s\n", av_err2str(ret));
+        return ret;
+    }
+    out->initialized = true;
+
+    return 0;
 }
 
 int main(int argc, char **argv)
@@ -79,6 +110,10 @@ int main(int argc, char **argv)
     int opt, ret;
     struct output *outputs = NULL, *current = NULL;
     pkt = av_packet_alloc();
+    if((ret = av_dict_set(&out_opts, "listen", "1", 0)) < 0) {
+        fprintf(stderr, "av_dict_set(): %s\n", av_err2str(ret));
+        return 1;
+    }
     while((opt = getopt(argc, argv, "i:o:")) != -1) {
         switch(opt) {
             case 'i':
@@ -127,6 +162,13 @@ int main(int argc, char **argv)
     }
 
     while(true) {
-
+        if((ret = av_read_frame(inctx, pkt)) < 0)
+            continue;
+        for(struct output *out = outputs; out->next; out = out->next) {
+            if(!out->initialized) {
+                if((ret = output_init_ctx(out)) < 0)
+                    return 1;
+            }
+        }
     }
 }
