@@ -22,6 +22,7 @@
 #include <stdbool.h>
 
 #include <libavformat/avformat.h>
+#include <libavcodec/avcodec.h>
 
 struct output {
     AVFormatContext *avctx;
@@ -65,6 +66,7 @@ static struct output *output_new(struct output *prev, const char *ffout)
     struct output *out = calloc(1, sizeof(struct output));
     if(prev)
         prev->next = out;
+    printf("Output %s\n", ffout);
     out->next = NULL;
     out->avctx = open_outctx(ffout);
     out->initialized = false;
@@ -82,6 +84,9 @@ static int output_copy_streams(struct output *out)
             return ret;
         }
         outstream->codecpar->codec_tag = 0;
+        printf("Added new stream (%s) to output %s\n",
+               avcodec_get_name(outstream->codecpar->codec_id),
+               out->avctx->url);
     }
     return 0;
 }
@@ -91,12 +96,19 @@ static int output_init_ctx(struct output *out)
     int ret;
     if((ret = output_copy_streams(out)) < 0)
         return ret;
-    AVDictionary *out_opts;
-    if((ret = av_dict_set(&out_opts, "listen", "1", 0)) < 0) {
+    AVDictionary *out_opts = NULL;
+    if((ret = av_dict_set(&out_opts,
+                          "listen",
+                          "1",
+                          0)) < 0) {
         fprintf(stderr, "av_dict_set(): %s\n", av_err2str(ret));
         return ret;
     }
-    if((ret = avformat_write_header(out->avctx, &out_opts)) < 0) {
+    printf("URL %s\n", out->avctx->url);
+    if(!(out->avctx->flags & AVFMT_NOFILE) &&
+       (ret = avio_open2(&out->avctx->pb, out->avctx->url, AVIO_FLAG_WRITE, NULL, &out_opts)) < 0)
+        fprintf(stderr, "avio_open(): %s\n", av_err2str(ret));
+    if((ret = avformat_write_header(out->avctx, NULL)) < 0) {
         fprintf(stderr, "avformat_write_header(): %s\n", av_err2str(ret));
         return ret;
     }
@@ -158,14 +170,34 @@ int main(int argc, char **argv)
                 break;
         }
     }
+    printf("Options processed\n");
 
-    while(true) {
-        if((ret = av_read_frame(inctx, pkt)) < 0)
+    while(1) {
+        if((ret = av_read_frame(inctx, pkt)) < 0) {
+            fprintf(stderr, "av_read_frame(): %s\n", av_err2str(ret));
+            if(ret == AVERROR_EOF)
+                break;
             continue;
-        for(struct output *out = outputs; out->next; out = out->next) {
+        }
+        AVStream *in_stream = inctx->streams[pkt->stream_index];
+        printf("out %p next %p\n", outputs, outputs->next);
+        struct output *out = outputs;
+        while(out) {
+            printf("out %p\n", out);
             if(!out->initialized && (ret = output_init_ctx(out)) < 0)
                 return 1;
+            printf("remuxing\n");
+            // XXX the output stream structure matches that of `inctx`
+            AVStream *out_stream = out->avctx->streams[pkt->stream_index];
+            AVPacket *out_pkt = av_packet_clone(pkt);
+            av_packet_rescale_ts(out_pkt, in_stream->time_base, out_stream->time_base);
+            out_pkt->pos = -1;
+            if((ret = av_interleaved_write_frame(out->avctx, out_pkt)) < 0) {
+                // TODO Handle closed socket
+                fprintf(stderr, "av_interleaved_write_frame(): %s\n", av_err2str(ret));
+            }
 
+            out = out->next;
         }
     }
 }
