@@ -4,7 +4,7 @@ SHELL = /bin/sh
 
 CC ?= cc
 CFLAGS ?= -g
-LDLIBS = `pkg-config --libs --cflags libavformat`
+LDLIBS = `pkg-config --libs --cflags libavformat libavcodec libavutil`
 PREFIX ?= /usr/local
 
 all: ryo

@@ -9,4 +9,4 @@ The program also recreates closed sockets ASAP.
 - POSIX compliant system (for `getopt`)
 - C99 compliant compiler
 - make
-- libavformat shared libraries installed (comes with FFmpeg in most cases)
+- FFmpeg libraries (libav\*.so)
