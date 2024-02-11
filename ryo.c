@@ -18,6 +18,7 @@
 */
 
 #include <getopt.h>
+#include <libavformat/avio.h>
 #include <stdlib.h>
 #include <stdbool.h>
 
@@ -91,11 +92,9 @@ static int output_copy_streams(struct output *out)
     return 0;
 }
 
-static int output_init_ctx(struct output *out)
+static int output_open(struct output *out)
 {
-    int ret;
-    if((ret = output_copy_streams(out)) < 0)
-        return ret;
+    int ret = 0;
     AVDictionary *out_opts = NULL;
     if((ret = av_dict_set(&out_opts,
                           "listen",
@@ -108,6 +107,16 @@ static int output_init_ctx(struct output *out)
     if(!(out->avctx->flags & AVFMT_NOFILE) &&
        (ret = avio_open2(&out->avctx->pb, out->avctx->url, AVIO_FLAG_WRITE, NULL, &out_opts)) < 0)
         fprintf(stderr, "avio_open(): %s\n", av_err2str(ret));
+    return ret;
+}
+
+static int output_init_ctx(struct output *out)
+{
+    int ret;
+    if((ret = output_copy_streams(out)) < 0)
+        return ret;
+    if((ret = output_open(out)) < 0)
+        return ret;
     if((ret = avformat_write_header(out->avctx, NULL)) < 0) {
         fprintf(stderr, "avformat_write_header(): %s\n", av_err2str(ret));
         return ret;
@@ -195,6 +204,11 @@ int main(int argc, char **argv)
             if((ret = av_interleaved_write_frame(out->avctx, out_pkt)) < 0) {
                 // TODO Handle closed socket
                 fprintf(stderr, "av_interleaved_write_frame(): %s\n", av_err2str(ret));
+                if(ret == AVERROR(EPIPE)) {
+                    avio_closep(&out->avctx->pb);
+                    if(output_open(out) < 0)
+                        continue;
+                }
             }
 
             out = out->next;
