@@ -4,6 +4,7 @@ SHELL = /bin/sh
 
 CC ?= cc
 CFLAGS ?= -g
+CFLAGS += -std=c17
 LDLIBS = `pkg-config --libs --cflags libavformat libavcodec libavutil`
 PREFIX ?= /usr/local
 
