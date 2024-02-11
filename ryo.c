@@ -33,7 +33,6 @@ static bool input_present = false;
 static AVFormatContext *inctx = NULL;
 static AVInputFormat *infmt = NULL;
 static AVPacket *pkt;
-static AVDictionary *out_opts = NULL;
 
 static inline const AVOutputFormat *find_output_format(const AVInputFormat *infmt)
 {
@@ -92,6 +91,7 @@ static int output_init_ctx(struct output *out)
     int ret;
     if((ret = output_copy_streams(out)) < 0)
         return ret;
+    AVDictionary *out_opts;
     if((ret = av_dict_set(&out_opts, "listen", "1", 0)) < 0) {
         fprintf(stderr, "av_dict_set(): %s\n", av_err2str(ret));
         return ret;
@@ -110,10 +110,6 @@ int main(int argc, char **argv)
     int opt, ret;
     struct output *outputs = NULL, *current = NULL;
     pkt = av_packet_alloc();
-    if((ret = av_dict_set(&out_opts, "listen", "1", 0)) < 0) {
-        fprintf(stderr, "av_dict_set(): %s\n", av_err2str(ret));
-        return 1;
-    }
     while((opt = getopt(argc, argv, "i:o:")) != -1) {
         switch(opt) {
             case 'i':
@@ -167,10 +163,9 @@ int main(int argc, char **argv)
         if((ret = av_read_frame(inctx, pkt)) < 0)
             continue;
         for(struct output *out = outputs; out->next; out = out->next) {
-            if(!out->initialized) {
-                if((ret = output_init_ctx(out)) < 0)
-                    return 1;
-            }
+            if(!out->initialized && (ret = output_init_ctx(out)) < 0)
+                return 1;
+
         }
     }
 }
